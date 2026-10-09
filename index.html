@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>⚡ Neon Space Dodge ⚡</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+        body { background: #050510; font-family: 'Segoe UI', Arial, sans-serif; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; }
+        #gameContainer { position: relative; width: 100%; max-width: 450px; height: 100vh; max-height: 800px; background: radial-gradient(circle, #0c0f26 0%, #050515 100%); overflow: hidden; border: 3px solid #00f0ff; border-radius: 20px; box-shadow: 0 0 30px #00f0ff66; }
+        canvas { display: block; width: 100%; height: 100%; }
+        .ui-overlay { position: absolute; top: 20px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 25px; pointer-events: none; font-size: 20px; font-weight: bold; text-shadow: 0 0 10px #00f0ff; letter-spacing: 1px; }
+        #scoreNum { color: #00f0ff; }
+        #highScoreNum { color: #ff007f; }
+        #startScreen, #gameOverScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(5, 5, 20, 0.85); backdrop-filter: blur(8px); text-align: center; padding: 20px; border-radius: 17px; }
+        h1 { font-size: 32px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; color: #00f0ff; text-shadow: 0 0 20px #00f0ff; animation: pulse 2s infinite; }
+        p { font-size: 16px; margin-bottom: 30px; color: #8fa0dd; max-width: 80%; line-height: 1.5; }
+        .btn { padding: 15px 40px; font-size: 18px; font-weight: bold; text-transform: uppercase; color: white; background: linear-gradient(45deg, #ff007f, #7f00ff); border: none; border-radius: 50px; cursor: pointer; box-shadow: 0 0 20px #ff007f88; transition: transform 0.2s, box-shadow 0.2s; }
+        .btn:active { transform: scale(0.95); box-shadow: 0 0 10px #ff007f; }
+        #gameOverScreen { display: none; }
+        #gameOverScreen h1 { color: #ff004f; text-shadow: 0 0 20px #ff004f; }
+        .instruction { font-size: 14px; color: #556595; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div class="ui-overlay">
+            <div>SCORE: <span id="scoreNum">0</span></div>
+            <div>BEST: <span id="highScoreNum">0</span></div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Start Screen -->
+        <div id="startScreen">
+            <h1>Neon Dodge</h1>
+            <p>Apne Player (Neon Circle) ko ungli se drag karo aur aane wali lal rukavaton se bachao!</p>
+            <button class="btn" onclick="startGame()">Khel Shuru Karo</button>
+            <div class="instruction">Laptop par Mouse se aur Phone par Touch se khele.</div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen">
+            <h1>Game Over</h1>
+            <p>Aapka dost rukawat se takra gaya!</p>
+            <h2 style="font-size: 24px; margin-bottom: 25px; color: #00f0ff;">Final Score: <span id="finalScore">0</span></h2>
+            <button class="btn" onclick="restartGame()">Dobara Khele</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreNum = document.getElementById('scoreNum');
+        const highScoreNum = document.getElementById('highScoreNum');
+        const finalScore = document.getElementById('finalScore');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+
+        let width, height, player, obstacles, particles, score, highScore = 0, isPlaying = false, spawnTimer;
+
+        function resize() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            width = canvas.width = rect.width;
+            height = canvas.height = rect.height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Player {
+            constructor() {
+                this.x = width / 2;
+                this.y = height * 0.8;
+                this.radius = 16;
+                this.targetX = this.x;
+            }
+            update() {
+                this.x += (this.targetX - this.x) * 0.3; // Smooth moving lag free
+                if(this.x < this.radius) this.x = this.radius;
+                if(this.x > width - this.radius) this.x = width - this.radius;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#00f0ff';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#00f0ff';
+                ctx.fill();
+                ctx.shadowBlur = 0; // reset
+            }
+        }
+
+        class Obstacle {
+            constructor() {
+                this.radius = Math.random() * 15 + 12;
+                this.x = Math.random() * (width - this.radius * 2) + this.radius;
+                this.y = -this.radius;
+                this.speed = Math.random() * 3 + 4 + (score * 0.1);
+            }
+            update() {
+                this.y += this.speed;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff0055';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = '#ff0055';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function handleMove(e) {
+            if (!isPlaying) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const rect = canvas.getBoundingClientRect();
+            player.targetX = clientX - rect.left;
+        }
+
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('touchmove', handleMove);
+
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            player = new Player();
+            obstacles = [];
+            score = 0;
+            isPlaying = true;
+            spawnTimer = 0;
+            scoreNum.innerText = score;
+            animate();
+        }
+
+        function restartGame() {
+            startGame();
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            if (score > highScore) {
+                highScore = score;
+                highScoreNum.innerText = highScore;
+            }
+            finalScore.innerText = score;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        function animate() {
+            if (!isPlaying) return;
+            ctx.clearRect(0, 0, width, height);
+
+            player.update();
+            player.draw();
+
+            spawnTimer++;
+            if (spawnTimer % 25 === 0) {
+                obstacles.push(new Obstacle());
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].update();
+                obstacles[i].draw();
+
+                // Collision Detection logic
+                let dx = obstacles[i].x - player.x;
+                let dy = obstacles[i].y - player.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < player.radius + obstacles[i].radius) {
+                    gameOver();
+                    return;
+                }
+
+                if (obstacles[i].y > height + obstacles[i].radius) {
+                    obstacles.splice(i, 1);
+                    score++;
+                    scoreNum.innerText = score;
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
